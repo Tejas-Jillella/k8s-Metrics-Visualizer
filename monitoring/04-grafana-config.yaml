@@ -1,0 +1,39 @@
+---
+# Wires Grafana to the Prometheus service inside the monitoring namespace
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+data:
+  prometheus.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        uid: prometheus          # must match the uid used in dashboard JSON
+        url: http://prometheus.monitoring.svc.cluster.local:9090
+        access: proxy
+        isDefault: true
+        editable: false
+        jsonData:
+          timeInterval: "15s"
+
+---
+# Tells Grafana where to find dashboard JSON files on disk
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: monitoring
+data:
+  provider.yaml: |
+    apiVersion: 1
+    providers:
+      - name: default
+        folder: K8s Monitoring
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards

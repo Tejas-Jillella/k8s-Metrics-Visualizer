@@ -1,0 +1,234 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: monitoring
+data:
+  k8s-gpu-cpu-mem.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "id": 1,
+          "title": "GPU Utilization (%)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "DCGM_FI_DEV_GPU_UTIL{pod!=\"\"}",
+              "legendFormat": "{{namespace}}/{{pod}} · GPU{{gpu}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100,
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": true
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
+          }
+        },
+        {
+          "id": 2,
+          "title": "GPU Memory Used (MiB)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "DCGM_FI_DEV_FB_USED{pod!=\"\"}",
+              "legendFormat": "{{namespace}}/{{pod}} · GPU{{gpu}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "decmbytes",
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": true
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
+          }
+        },
+        {
+          "id": 3,
+          "title": "GPU Temperature (°C)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "DCGM_FI_DEV_GPU_TEMP",
+              "legendFormat": "{{instance}} · GPU{{gpu}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "celsius",
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": true
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green",  "value": null},
+                  {"color": "orange", "value": 80},
+                  {"color": "red",    "value": 90}
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
+          }
+        },
+        {
+          "id": 4,
+          "title": "GPU Power Usage (W)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "DCGM_FI_DEV_POWER_USAGE",
+              "legendFormat": "{{instance}} · GPU{{gpu}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "watt",
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": true
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
+          }
+        },
+        {
+          "id": 5,
+          "title": "CPU Usage (cores) — All Pods, All Namespaces",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "sum(rate(container_cpu_usage_seconds_total{container!=\"\", container!=\"POD\", pod!=\"\"}[5m])) by (namespace, pod)",
+              "legendFormat": "{{namespace}}/{{pod}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": true
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
+          }
+        },
+        {
+          "id": 6,
+          "title": "Memory Working Set — All Pods, All Namespaces",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "sum(container_memory_working_set_bytes{container!=\"\", container!=\"POD\", pod!=\"\"}) by (namespace, pod)",
+              "legendFormat": "{{namespace}}/{{pod}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": true
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
+          }
+        }
+      ],
+      "refresh": "15s",
+      "schemaVersion": 39,
+      "tags": ["gpu", "nvidia", "dcgm", "kubernetes", "l40s"],
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "K8s — GPU + CPU + Memory",
+      "uid": "k8s-gpu-cpu-mem",
+      "version": 1
+    }
