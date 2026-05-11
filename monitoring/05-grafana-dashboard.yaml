@@ -15,7 +15,7 @@ data:
       "panels": [
         {
           "id": 1,
-          "title": "GPU Utilization (%)",
+          "title": "GPU SM Clock (MHz) — Active = ~2520 MHz, Idle = ~210 MHz",
           "type": "timeseries",
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
           "datasource": {"type": "prometheus", "uid": "prometheus"},
@@ -23,15 +23,13 @@ data:
             {
               "refId": "A",
               "datasource": {"type": "prometheus", "uid": "prometheus"},
-              "expr": "DCGM_FI_DEV_GPU_UTIL{pod!=\"\"}",
+              "expr": "DCGM_FI_DEV_SM_CLOCK{pod!=\"\"}",
               "legendFormat": "{{namespace}}/{{pod}} · GPU{{gpu}}"
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "unit": "percent",
-              "min": 0,
-              "max": 100,
+              "unit": "short",
               "color": {"mode": "palette-classic"},
               "custom": {
                 "drawStyle": "line",
@@ -92,7 +90,7 @@ data:
               "refId": "A",
               "datasource": {"type": "prometheus", "uid": "prometheus"},
               "expr": "DCGM_FI_DEV_GPU_TEMP",
-              "legendFormat": "{{instance}} · GPU{{gpu}}"
+              "legendFormat": "{{Hostname}} · GPU{{gpu}}"
             }
           ],
           "fieldConfig": {
@@ -133,7 +131,7 @@ data:
               "refId": "A",
               "datasource": {"type": "prometheus", "uid": "prometheus"},
               "expr": "DCGM_FI_DEV_POWER_USAGE",
-              "legendFormat": "{{instance}} · GPU{{gpu}}"
+              "legendFormat": "{{Hostname}} · GPU{{gpu}}"
             }
           ],
           "fieldConfig": {
@@ -222,7 +220,7 @@ data:
           }
         }
       ],
-      "refresh": "15s",
+      "refresh": "5s",
       "schemaVersion": 39,
       "tags": ["gpu", "nvidia", "dcgm", "kubernetes", "l40s"],
       "time": {"from": "now-1h", "to": "now"},
@@ -230,5 +228,5 @@ data:
       "timezone": "browser",
       "title": "K8s — GPU + CPU + Memory",
       "uid": "k8s-gpu-cpu-mem",
-      "version": 1
+      "version": 2
     }
