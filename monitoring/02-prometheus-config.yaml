@@ -12,12 +12,26 @@ data:
 
     scrape_configs:
 
-      # ── DCGM exporter already running in gpu-operator namespace ──────────
-      # Scraping by ClusterIP directly — no service discovery needed
+      # ── DCGM exporter — scrape all pods across all nodes ────────────────
+      # DaemonSet pods each only report their own node's GPUs, so we must
+      # scrape every pod individually, not the single ClusterIP.
       - job_name: 'dcgm'
-        static_configs:
-          - targets: ['10.98.78.19:9400']
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: ['gpu-operator']
         relabel_configs:
+          # Only scrape nvidia-dcgm-exporter pods
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            regex: nvidia-dcgm-exporter
+            action: keep
+          # Use pod IP on port 9400
+          - source_labels: [__meta_kubernetes_pod_ip]
+            target_label: __address__
+            replacement: $1:9400
+          # Carry through useful labels
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
           - target_label: cluster
             replacement: l40s-cluster
 
