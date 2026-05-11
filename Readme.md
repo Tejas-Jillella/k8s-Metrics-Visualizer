@@ -1,31 +1,41 @@
-### Run bash script to log metrices to Redis
-Step 1: 
-```
-kubectl proxy 
-curl -s http://localhost:8001/api/v1/nodes/$(hostname)/proxy/stats/summary | jq
+# k8s Metrics Visualizer
+
+Real-time GPU + CPU + Memory monitoring for a 9-node L40S Kubernetes cluster.
+
+## Stack
+
+- **Prometheus** — scrapes DCGM (GPU), kubelet, and cAdvisor (CPU/memory) across all nodes and namespaces
+- **Grafana** — live dashboard, updates every 5 seconds, 7 days retention
+- **DCGM** — already running in `gpu-operator` namespace, provides GPU metrics
+
+## Deploying the monitoring stack
+
+```bash
+kubectl apply -f monitoring/00-namespace.yaml
+kubectl apply -f monitoring/01-prometheus-rbac.yaml
+kubectl apply -f monitoring/02-prometheus-config.yaml
+kubectl apply -f monitoring/03-prometheus.yaml
+kubectl apply -f monitoring/04-grafana-config.yaml
+kubectl apply -f monitoring/05-grafana-dashboard.yaml
+kubectl apply -f monitoring/06-grafana.yaml
 ```
 
-Step 2:
-```
-rm -rf go.sum
-rm -rf go.mod
+## Accessing Grafana
 
-go mod init kube-metrics
-go get github.com/go-redis/redis/v8
-go get golang.org/x/net/context
-### go run kube-metrics.go
+SSH tunnel from your laptop (keep this terminal open):
+
+```bash
+ssh -L 3000:192.168.50.1:30030 <your-username>@192.168.50.100
 ```
 
-Step 3:
-```
-export NODE_NAMES="ubuntu24-worker2,ubuntu24-worker5,ubuntu24-worker6"
-./run-metrics.sh
-```
+Then open `http://localhost:3000` — login `admin` / `changeme`.
 
-Step 4:
-```
-redis-cli
-keys *
+## Go collector
 
+`kube-metrics.go` is a Go-based collector that polls kubelet and logs CPU/memory
+metrics to Redis. It predates the Prometheus stack and is kept for reference.
 
-```
+## Runbook
+
+See [`monitoring/RUNBOOK.md`](monitoring/RUNBOOK.md) for health checks, troubleshooting,
+and the Prometheus OOMKill fix procedure.
