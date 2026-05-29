@@ -1,0 +1,73 @@
+# ============================================================
+# FILE 1 of 3: monitoring.yaml
+# Creates the monitoring namespace and gives Prometheus
+# permission to read pod/node data across the whole cluster
+# ============================================================
+
+# --- NAMESPACE ---
+# Every Kubernetes resource lives in a namespace.
+# This creates an isolated space called "monitoring" so nothing
+# we deploy here touches your actual workload namespaces.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    app.kubernetes.io/part-of: monitoring-stack
+
+---
+
+# --- SERVICE ACCOUNT ---
+# This is the "identity" that the Prometheus pod runs as.
+# Without this, Prometheus has no identity to attach permissions to.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: monitoring
+
+---
+
+# --- CLUSTER ROLE ---
+# Defines WHAT the prometheus identity is allowed to do.
+# Read-only access to pods, nodes, services, endpoints across
+# ALL namespaces. The nonResourceURLs section allows scraping
+# the /metrics HTTP endpoints directly.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/proxy      # needed to route metrics requests through the API server
+      - nodes/metrics
+      - services
+      - endpoints
+      - pods
+      - namespaces
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs:
+      - /metrics
+      - /metrics/cadvisor
+      - /metrics/resource
+    verbs: ["get"]
+
+---
+
+# --- CLUSTER ROLE BINDING ---
+# Connects the ClusterRole (permissions) to the ServiceAccount (identity).
+# Without this, the role exists but nothing uses it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: monitoring

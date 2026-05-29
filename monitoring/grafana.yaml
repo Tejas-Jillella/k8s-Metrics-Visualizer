@@ -1,3 +1,85 @@
+# ============================================================
+# FILE 3 of 3: grafana.yaml
+# Everything Grafana needs:
+#   - Datasource ConfigMap (points Grafana at Prometheus)
+#   - Dashboard provider ConfigMap (tells Grafana where dashboard files are)
+#   - Dashboard JSON ConfigMap (the actual panels and queries)
+#   - Deployment (the running Grafana pod)
+#   - Service (NodePort so you can reach it from a browser)
+# ============================================================
+
+# --- DATASOURCE CONFIG ---
+# Tells Grafana: "your data comes from Prometheus at this URL".
+# Without this, Grafana has no idea where to send PromQL queries.
+# The uid: "prometheus" must match the uid used in dashboard JSON below.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+data:
+  prometheus.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        uid: prometheus
+        url: http://prometheus.monitoring.svc.cluster.local:9090
+        access: proxy
+        isDefault: true
+        editable: false
+        jsonData:
+          timeInterval: "5s"
+
+---
+
+# --- DASHBOARD PROVIDER CONFIG ---
+# Tells Grafana: "load dashboard JSON files from this folder on disk".
+# Grafana will automatically pick up any .json file placed there.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: monitoring
+data:
+  provider.yaml: |
+    apiVersion: 1
+    providers:
+      - name: default
+        folder: K8s Monitoring
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards
+
+---
+
+# --- DASHBOARD JSON ---
+# The actual dashboard definition. Every panel, every PromQL query,
+# every layout position is stored here as JSON in a ConfigMap.
+# Grafana reads this file at startup and creates the dashboard automatically.
+#
+# PANELS IN THIS DASHBOARD:
+# Row 1 — GPU health:
+#   1. GPU Utilization %         → DCGM_FI_DEV_GPU_UTIL          (per pod)
+#   2. GPU Memory Used (MiB)     → DCGM_FI_DEV_FB_USED           (per pod)
+# Row 2 — GPU thermals:
+#   3. GPU Temperature (°C)      → DCGM_FI_DEV_GPU_TEMP          (per node)
+#   4. GPU Power Usage (W)       → DCGM_FI_DEV_POWER_USAGE       (per node)
+# Row 3 — CPU & memory:
+#   5. CPU Usage (cores)         → container_cpu_usage_seconds_total  (cAdvisor)
+#   6. Memory Working Set        → container_memory_working_set_bytes (cAdvisor)
+# Row 4 — GPU profiling (deeper insight into LLM inference workloads):
+#   7. GR Engine Active          → DCGM_FI_PROF_GR_ENGINE_ACTIVE      (0-1 ratio)
+#   8. DRAM Bandwidth Active     → DCGM_FI_PROF_DRAM_ACTIVE           (0-1 ratio)
+#   9. Tensor Core Active        → DCGM_FI_PROF_PIPE_TENSOR_ACTIVE    (0-1 ratio)
+#
+# NOTE ON GPU UTIL VS PROFILING METRICS:
+# DCGM_FI_DEV_GPU_UTIL is the standard utilization % — works correctly.
+# The profiling metrics (row 4) give deeper insight specifically for LLM
+# workloads: GR Engine = is GPU busy, DRAM = memory bandwidth pressure,
+# Tensor Core = how hard the matrix multiply units are working.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -337,3 +419,118 @@ data:
       "uid": "k8s-gpu-cpu-mem",
       "version": 3
     }
+
+---
+
+# --- GRAFANA DEPLOYMENT ---
+# The actual Grafana pod. Mounts three ConfigMaps as directories:
+# - datasources      → /etc/grafana/provisioning/datasources
+# - dashboard-provider → /etc/grafana/provisioning/dashboards
+# - dashboards       → /var/lib/grafana/dashboards
+# Grafana reads all three at startup and self-configures.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      securityContext:
+        runAsUser:    472     # grafana UID
+        runAsNonRoot: true
+        fsGroup:      472
+      containers:
+        - name: grafana
+          image: grafana/grafana:10.4.2
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: "admin"
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: "changeme"          # ← change before deploying
+            - name: GF_PATHS_PROVISIONING
+              value: /etc/grafana/provisioning
+            - name: GF_ANALYTICS_REPORTING_ENABLED
+              value: "false"
+            - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+              value: /var/lib/grafana/dashboards/k8s-gpu-cpu-mem.json
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+            - name: grafana-data
+              mountPath: /var/lib/grafana
+          resources:
+            requests:
+              cpu:    100m
+              memory: 128Mi
+            limits:
+              cpu:    500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            timeoutSeconds: 5
+      volumes:
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: dashboard-provider
+          configMap:
+            name: grafana-dashboard-provider
+        - name: dashboards
+          configMap:
+            name: grafana-dashboards
+        - name: grafana-data
+          emptyDir: {}
+          # For persistence across restarts swap emptyDir for a PVC:
+          # persistentVolumeClaim:
+          #   claimName: grafana-data
+
+---
+
+# --- GRAFANA SERVICE ---
+# NodePort exposes Grafana outside the cluster.
+# Reach it at http://<any-node-ip>:30030
+# Access from laptop via SSH tunnel:
+#   ssh -L 3000:192.168.50.1:30030 sys-teja-admin@131.151.54.141
+# Then open http://localhost:3000
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+spec:
+  selector:
+    app: grafana
+  type: NodePort
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      nodePort: 30030      # reach it at http://<any-node-ip>:30030

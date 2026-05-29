@@ -1,0 +1,212 @@
+# ============================================================
+# FILE 2 of 3: prometheus.yaml
+# Everything Prometheus needs:
+#   - ConfigMap (what to scrape and how often)
+#   - PVC (storage for metric history)
+#   - Deployment (the actual running pod)
+#   - Service (so Grafana can reach it)
+# ============================================================
+
+# --- PROMETHEUS CONFIG ---
+# This is the brain. Tells Prometheus what targets to scrape
+# and how often. Three jobs defined below.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval:     5s    # scrape every target every 5 seconds (near real-time)
+      evaluation_interval: 5s
+      scrape_timeout:      5s
+
+    scrape_configs:
+
+      # JOB 1: DCGM — GPU metrics (all nodes)
+      # DCGM runs as a DaemonSet (one pod per node) in the gpu-operator namespace.
+      # Each pod only knows about its own node's GPUs, so we must scrape every
+      # pod individually using pod service discovery — NOT the single ClusterIP,
+      # which only ever routes to one node at a time.
+      - job_name: 'dcgm'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: ['gpu-operator']
+        relabel_configs:
+          # Only scrape nvidia-dcgm-exporter pods
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            regex: nvidia-dcgm-exporter
+            action: keep
+          # Use pod IP on port 9400
+          - source_labels: [__meta_kubernetes_pod_ip]
+            target_label: __address__
+            replacement: $1:9400
+          # Carry through useful labels
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
+          - target_label: cluster
+            replacement: l40s-cluster
+
+      # JOB 2: kubelet — node-level metrics
+      # Uses Kubernetes service discovery to automatically find all nodes.
+      # Routes through the API server (kubernetes.default.svc:443) so we
+      # don't need direct network access to each node.
+      - job_name: 'kubelet'
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true   # kubelet uses a self-signed cert
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/$1/proxy/metrics
+
+      # JOB 3: cAdvisor — per-container CPU and memory (all namespaces)
+      # Same discovery mechanism as kubelet but hits /metrics/cadvisor.
+      # This is what powers the CPU and Memory panels in Grafana.
+      - job_name: 'cadvisor'
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+        metric_relabel_configs:
+          # Drop noisy high-cardinality metrics we don't use
+          - source_labels: [__name__]
+            regex: 'container_(network_tcp_usage_total|tasks_state|memory_failures_total)'
+            action: drop
+
+---
+
+# --- PERSISTENT VOLUME CLAIM ---
+# Prometheus stores its time-series database on disk.
+# 50Gi supports 30 days of data at 5s scrape interval across 9 nodes.
+# If your cluster has no default StorageClass, uncomment storageClassName.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-data
+  namespace: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  # storageClassName: ""   # ← set if your cluster has no default StorageClass
+
+---
+
+# --- PROMETHEUS DEPLOYMENT ---
+# The actual Prometheus pod.
+# 30Gi memory limit gives plenty of headroom for WAL replay
+# and in-memory operations at 5s scrape interval across 9 nodes.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      serviceAccountName: prometheus   # uses the identity from monitoring.yaml
+      securityContext:
+        runAsUser:    65534            # nobody
+        runAsNonRoot: true
+        fsGroup:      65534            # lets prometheus write to the PVC
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.51.2
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time=30d    # keep 30 days of data
+            - --web.enable-lifecycle                # enables POST /-/reload without restart
+            - --web.console.libraries=/usr/share/prometheus/console_libraries
+            - --web.console.templates=/usr/share/prometheus/consoles
+          ports:
+            - name: http
+              containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: data
+              mountPath: /prometheus
+          resources:
+            requests:
+              cpu:    250m
+              memory: 1Gi
+            limits:
+              cpu:    1000m
+              memory: 30Gi             # 30Gi — headroom for WAL + 30d of data at 5s scrape
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 5
+            timeoutSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config    # mounts the ConfigMap above as a file
+        - name: data
+          persistentVolumeClaim:
+            claimName: prometheus-data
+
+---
+
+# --- PROMETHEUS SERVICE ---
+# ClusterIP service so Grafana can reach Prometheus at:
+# http://prometheus.monitoring.svc.cluster.local:9090
+# Nothing outside the cluster can hit this directly.
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+spec:
+  selector:
+    app: prometheus
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
