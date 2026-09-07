@@ -1,0 +1,76 @@
+# ============================================================
+# node-exporter.yaml
+# Deploys prometheus/node-exporter as a DaemonSet (one pod per node)
+# so we get real per-node, per-core CPU and memory metrics.
+#
+# Why this is needed: cAdvisor (in prometheus.yaml) only gives
+# per-container CPU/memory, not whole-node capacity or per-core
+# breakdown. node_exporter reads /proc and /sys directly on each
+# host, exposing node_cpu_seconds_total{cpu, mode} (per-core) and
+# node_memory_* (whole-node memory), which is what the per-node
+# breakdown dashboard in grafana.yaml needs.
+#
+# Uses hostNetwork so the pod IP == node IP, and relabels the
+# "node" label the same way the DCGM job in prometheus.yaml does,
+# so CPU and GPU panels can be joined/grouped consistently by node.
+# ============================================================
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: monitoring
+  labels:
+    app: node-exporter
+spec:
+  selector:
+    matchLabels:
+      app: node-exporter
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+    spec:
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+        - operator: Exists   # run on every node, including tainted GPU/control-plane nodes
+      containers:
+        - name: node-exporter
+          image: prom/node-exporter:v1.8.1
+          args:
+            - --path.procfs=/host/proc
+            - --path.sysfs=/host/sys
+            - --path.rootfs=/host/root
+            - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/pods/.+)($|/)
+          ports:
+            - name: metrics
+              containerPort: 9100
+              hostPort: 9100
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: root
+              mountPath: /host/root
+              readOnly: true
+              mountPropagation: HostToContainer
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: root
+          hostPath:
+            path: /

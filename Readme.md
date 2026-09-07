@@ -4,20 +4,20 @@ Real-time GPU + CPU + Memory monitoring for a 9-node L40S Kubernetes cluster.
 
 ## Stack
 
-- **Prometheus** — scrapes DCGM (GPU), kubelet, and cAdvisor (CPU/memory) across all nodes and namespaces
-- **Grafana** — live dashboard, updates every 5 seconds, 7 days retention
+- **Prometheus** — scrapes DCGM (GPU), node-exporter (per-node/per-core CPU + memory), kubelet, and cAdvisor (per-container CPU/memory) across all nodes and namespaces
+- **Grafana** — two dashboards, updating every 5 seconds, 30 days retention:
+  - `K8s Monitoring` folder — cluster-wide GPU/CPU/memory dashboard
+  - `Node Breakdown` folder — per-node dashboard with CPU % (overall + per-core) and GPU % (overall + per-GPU-index)
 - **DCGM** — already running in `gpu-operator` namespace, provides GPU metrics
+- **node-exporter** — DaemonSet deployed by this repo, provides per-node/per-core CPU and memory metrics
 
 ## Deploying the monitoring stack
 
 ```bash
-kubectl apply -f monitoring/00-namespace.yaml
-kubectl apply -f monitoring/01-prometheus-rbac.yaml
-kubectl apply -f monitoring/02-prometheus-config.yaml
-kubectl apply -f monitoring/03-prometheus.yaml
-kubectl apply -f monitoring/04-grafana-config.yaml
-kubectl apply -f monitoring/05-grafana-dashboard.yaml
-kubectl apply -f monitoring/06-grafana.yaml
+kubectl apply -f monitoring/monitoring.yaml
+kubectl apply -f monitoring/prometheus.yaml
+kubectl apply -f monitoring/node-exporter.yaml
+kubectl apply -f monitoring/grafana.yaml
 ```
 
 ## Accessing Grafana

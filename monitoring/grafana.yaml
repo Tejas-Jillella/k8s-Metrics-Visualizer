@@ -52,6 +52,13 @@ data:
         editable: true
         options:
           path: /var/lib/grafana/dashboards
+      - name: node-breakdown
+        folder: Node Breakdown
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards-node
 
 ---
 
@@ -422,6 +429,260 @@ data:
 
 ---
 
+# --- PER-NODE BREAKDOWN DASHBOARD ---
+# Lives in its own Grafana folder ("Node Breakdown") via the second
+# provider entry above, so it doesn't touch the existing
+# "K8s Monitoring" dashboard/folder.
+#
+# Uses a $node template variable with a REPEATING ROW: Grafana clones
+# the row (and every panel inside it) once per node, so you get one
+# self-contained section per node with:
+#   - CPU Usage % (overall)      → node_cpu_seconds_total (node-exporter)
+#   - CPU Usage % by core        → node_cpu_seconds_total{cpu=...}
+#   - GPU Usage % (overall)      → DCGM_FI_DEV_GPU_UTIL (avg across GPUs)
+#   - GPU Usage % by GPU index   → DCGM_FI_DEV_GPU_UTIL{gpu=...}
+#   - Memory Usage %             → node_memory_MemAvailable/MemTotal
+#
+# Requires node-exporter.yaml to be applied (adds the "node" label
+# consistently with the dcgm scrape job in prometheus.yaml).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-node
+  namespace: monitoring
+data:
+  k8s-per-node-breakdown.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "templating": {
+        "list": [
+          {
+            "name": "node",
+            "type": "query",
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "query": {
+              "query": "label_values(DCGM_FI_DEV_GPU_UTIL, node)",
+              "refId": "node-variable"
+            },
+            "refresh": 2,
+            "sort": 1,
+            "multi": true,
+            "includeAll": true,
+            "current": {"text": "All", "value": ["$__all"]}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 100,
+          "type": "row",
+          "title": "Node: $node",
+          "repeat": "node",
+          "collapsed": false,
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+          "panels": [
+            {
+              "id": 101,
+              "title": "CPU Usage % — overall",
+              "type": "stat",
+              "gridPos": {"h": 6, "w": 6, "x": 0, "y": 1},
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": {"type": "prometheus", "uid": "prometheus"},
+                  "expr": "100 - (avg(rate(node_cpu_seconds_total{node=\"$node\", mode=\"idle\"}[5m])) * 100)",
+                  "legendFormat": "{{node}}"
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "percent",
+                  "min": 0,
+                  "max": 100,
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {"color": "green",  "value": null},
+                      {"color": "orange", "value": 70},
+                      {"color": "red",    "value": 90}
+                    ]
+                  }
+                },
+                "overrides": []
+              },
+              "options": {
+                "reduceOptions": {"calcs": ["lastNotNull"]},
+                "orientation": "auto",
+                "colorMode": "background",
+                "graphMode": "area"
+              }
+            },
+            {
+              "id": 102,
+              "title": "CPU Usage % — by core",
+              "type": "timeseries",
+              "gridPos": {"h": 6, "w": 9, "x": 6, "y": 1},
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": {"type": "prometheus", "uid": "prometheus"},
+                  "expr": "100 - (avg by (cpu) (rate(node_cpu_seconds_total{node=\"$node\", mode=\"idle\"}[5m])) * 100)",
+                  "legendFormat": "core {{cpu}}"
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "percent",
+                  "min": 0,
+                  "max": 100,
+                  "color": {"mode": "palette-classic"},
+                  "custom": {
+                    "drawStyle": "line",
+                    "lineWidth": 1,
+                    "fillOpacity": 10,
+                    "showPoints": "never",
+                    "spanNulls": true
+                  }
+                },
+                "overrides": []
+              },
+              "options": {
+                "tooltip": {"mode": "multi", "sort": "desc"},
+                "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
+              }
+            },
+            {
+              "id": 103,
+              "title": "Memory Usage %",
+              "type": "stat",
+              "gridPos": {"h": 6, "w": 9, "x": 15, "y": 1},
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": {"type": "prometheus", "uid": "prometheus"},
+                  "expr": "100 * (1 - (node_memory_MemAvailable_bytes{node=\"$node\"} / node_memory_MemTotal_bytes{node=\"$node\"}))",
+                  "legendFormat": "{{node}}"
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "percent",
+                  "min": 0,
+                  "max": 100,
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {"color": "green",  "value": null},
+                      {"color": "orange", "value": 70},
+                      {"color": "red",    "value": 90}
+                    ]
+                  }
+                },
+                "overrides": []
+              },
+              "options": {
+                "reduceOptions": {"calcs": ["lastNotNull"]},
+                "orientation": "auto",
+                "colorMode": "background",
+                "graphMode": "area"
+              }
+            },
+            {
+              "id": 104,
+              "title": "GPU Usage % — overall",
+              "type": "stat",
+              "gridPos": {"h": 6, "w": 6, "x": 0, "y": 7},
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": {"type": "prometheus", "uid": "prometheus"},
+                  "expr": "avg(DCGM_FI_DEV_GPU_UTIL{node=\"$node\"})",
+                  "legendFormat": "{{node}}"
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "percent",
+                  "min": 0,
+                  "max": 100,
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {"color": "blue",   "value": null},
+                      {"color": "green",  "value": 1},
+                      {"color": "orange", "value": 80}
+                    ]
+                  }
+                },
+                "overrides": []
+              },
+              "options": {
+                "reduceOptions": {"calcs": ["lastNotNull"]},
+                "orientation": "auto",
+                "colorMode": "background",
+                "graphMode": "area"
+              }
+            },
+            {
+              "id": 105,
+              "title": "GPU Usage % — by GPU index",
+              "type": "timeseries",
+              "gridPos": {"h": 6, "w": 18, "x": 6, "y": 7},
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": {"type": "prometheus", "uid": "prometheus"},
+                  "expr": "DCGM_FI_DEV_GPU_UTIL{node=\"$node\"}",
+                  "legendFormat": "GPU{{gpu}}"
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "percent",
+                  "min": 0,
+                  "max": 100,
+                  "color": {"mode": "palette-classic"},
+                  "custom": {
+                    "drawStyle": "line",
+                    "lineWidth": 1,
+                    "fillOpacity": 10,
+                    "showPoints": "never",
+                    "spanNulls": true
+                  }
+                },
+                "overrides": []
+              },
+              "options": {
+                "tooltip": {"mode": "multi", "sort": "desc"},
+                "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
+              }
+            }
+          ]
+        }
+      ],
+      "refresh": "5s",
+      "schemaVersion": 39,
+      "tags": ["node", "cpu", "gpu", "per-node", "kubernetes"],
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "K8s — Per-Node Breakdown",
+      "uid": "k8s-per-node-breakdown",
+      "version": 1
+    }
+
+---
+
 # --- GRAFANA DEPLOYMENT ---
 # The actual Grafana pod. Mounts three ConfigMaps as directories:
 # - datasources      → /etc/grafana/provisioning/datasources
@@ -473,6 +734,8 @@ spec:
               mountPath: /etc/grafana/provisioning/dashboards
             - name: dashboards
               mountPath: /var/lib/grafana/dashboards
+            - name: dashboards-node
+              mountPath: /var/lib/grafana/dashboards-node
             - name: grafana-data
               mountPath: /var/lib/grafana
           resources:
@@ -504,6 +767,9 @@ spec:
         - name: dashboards
           configMap:
             name: grafana-dashboards
+        - name: dashboards-node
+          configMap:
+            name: grafana-dashboards-node
         - name: grafana-data
           emptyDir: {}
           # For persistence across restarts swap emptyDir for a PVC:

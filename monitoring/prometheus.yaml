@@ -49,7 +49,26 @@ data:
           - target_label: cluster
             replacement: l40s-cluster
 
-      # JOB 2: kubelet — node-level metrics
+      # JOB 2: node-exporter — real per-node, per-core CPU + memory
+      # Runs as a DaemonSet with hostNetwork (see node-exporter.yaml), so
+      # pod IP == node IP. Relabeled the same way as the dcgm job so CPU
+      # and GPU panels can be grouped by the same "node" label.
+      - job_name: 'node-exporter'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: ['monitoring']
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            regex: node-exporter
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_ip]
+            target_label: __address__
+            replacement: $1:9100
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
+
+      # JOB 3: kubelet — node-level metrics
       # Uses Kubernetes service discovery to automatically find all nodes.
       # Routes through the API server (kubernetes.default.svc:443) so we
       # don't need direct network access to each node.
@@ -71,7 +90,7 @@ data:
             target_label: __metrics_path__
             replacement: /api/v1/nodes/$1/proxy/metrics
 
-      # JOB 3: cAdvisor — per-container CPU and memory (all namespaces)
+      # JOB 4: cAdvisor — per-container CPU and memory (all namespaces)
       # Same discovery mechanism as kubelet but hits /metrics/cadvisor.
       # This is what powers the CPU and Memory panels in Grafana.
       - job_name: 'cadvisor'
