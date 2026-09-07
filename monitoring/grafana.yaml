@@ -555,7 +555,7 @@ data:
               },
               "options": {
                 "tooltip": {"mode": "multi", "sort": "desc"},
-                "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
+                "legend": {"showLegend": false}
               }
             },
             {
@@ -670,7 +670,7 @@ data:
           ]
         }
       ],
-      "refresh": "5s",
+      "refresh": "30s",
       "schemaVersion": 39,
       "tags": ["node", "cpu", "gpu", "per-node", "kubernetes"],
       "time": {"from": "now-1h", "to": "now"},
