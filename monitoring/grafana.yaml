@@ -59,6 +59,13 @@ data:
         editable: true
         options:
           path: /var/lib/grafana/dashboards-node
+      - name: cluster-overview
+        folder: Cluster Overview
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards-overview
 
 ---
 
@@ -961,6 +968,269 @@ data:
 
 ---
 
+# --- CLUSTER OVERVIEW DASHBOARD (presentation/demo view) ---
+# Lives in its own Grafana folder ("Cluster Overview") via the third
+# provider entry above.
+#
+# Unlike the Node Breakdown dashboard (deep-dive, one section per
+# node), this one is built for showing the cluster off to people who
+# aren't going to read PromQL: one bar-gauge panel per metric, one bar
+# per node, so a comparison across all 9 nodes reads at a glance
+# ("Node 3 is at 80%, everyone else is idle") without any per-core or
+# per-GPU-index detail.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-overview
+  namespace: monitoring
+data:
+  k8s-cluster-overview.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "id": 1,
+          "title": "CPU Usage % — by Node",
+          "type": "bargauge",
+          "gridPos": {"h": 9, "w": 12, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "100 - (avg by (node) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+              "legendFormat": "{{node}}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green",  "value": null},
+                  {"color": "orange", "value": 70},
+                  {"color": "red",    "value": 90}
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "orientation": "horizontal",
+            "displayMode": "gradient",
+            "showUnfilled": true,
+            "minVizWidth": 8,
+            "minVizHeight": 10,
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+          }
+        },
+        {
+          "id": 2,
+          "title": "Memory Usage % — by Node",
+          "type": "bargauge",
+          "gridPos": {"h": 9, "w": 12, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))",
+              "legendFormat": "{{node}}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green",  "value": null},
+                  {"color": "orange", "value": 70},
+                  {"color": "red",    "value": 90}
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "orientation": "horizontal",
+            "displayMode": "gradient",
+            "showUnfilled": true,
+            "minVizWidth": 8,
+            "minVizHeight": 10,
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+          }
+        },
+        {
+          "id": 3,
+          "title": "GPU Usage % — by Node (avg across GPUs)",
+          "type": "bargauge",
+          "gridPos": {"h": 9, "w": 12, "x": 0, "y": 9},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "avg by (node) (DCGM_FI_DEV_GPU_UTIL)",
+              "legendFormat": "{{node}}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "blue",   "value": null},
+                  {"color": "green",  "value": 1},
+                  {"color": "orange", "value": 80}
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "orientation": "horizontal",
+            "displayMode": "gradient",
+            "showUnfilled": true,
+            "minVizWidth": 8,
+            "minVizHeight": 10,
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+          }
+        },
+        {
+          "id": 4,
+          "title": "GPU Memory Used — by Node (sum across GPUs)",
+          "type": "bargauge",
+          "gridPos": {"h": 9, "w": 12, "x": 12, "y": 9},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "sum by (node) (DCGM_FI_DEV_FB_USED)",
+              "legendFormat": "{{node}}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "decmbytes",
+              "min": 0,
+              "color": {"mode": "continuous-GrYlRd"}
+            },
+            "overrides": []
+          },
+          "options": {
+            "orientation": "horizontal",
+            "displayMode": "gradient",
+            "showUnfilled": true,
+            "minVizWidth": 8,
+            "minVizHeight": 10,
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+          }
+        },
+        {
+          "id": 5,
+          "title": "GPU Temperature (°C) — Max per Node",
+          "type": "bargauge",
+          "gridPos": {"h": 9, "w": 12, "x": 0, "y": 18},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "max by (node) (DCGM_FI_DEV_GPU_TEMP)",
+              "legendFormat": "{{node}}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "celsius",
+              "min": 0,
+              "max": 100,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green",  "value": null},
+                  {"color": "orange", "value": 80},
+                  {"color": "red",    "value": 90}
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "orientation": "horizontal",
+            "displayMode": "gradient",
+            "showUnfilled": true,
+            "minVizWidth": 8,
+            "minVizHeight": 10,
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+          }
+        },
+        {
+          "id": 6,
+          "title": "GPU Power Usage (W) — Total per Node",
+          "type": "bargauge",
+          "gridPos": {"h": 9, "w": 12, "x": 12, "y": 18},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "sum by (node) (DCGM_FI_DEV_POWER_USAGE)",
+              "legendFormat": "{{node}}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "watt",
+              "min": 0,
+              "color": {"mode": "continuous-GrYlRd"}
+            },
+            "overrides": []
+          },
+          "options": {
+            "orientation": "horizontal",
+            "displayMode": "gradient",
+            "showUnfilled": true,
+            "minVizWidth": 8,
+            "minVizHeight": 10,
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+          }
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 39,
+      "tags": ["overview", "demo", "cluster", "kubernetes"],
+      "time": {"from": "now-30m", "to": "now"},
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "K8s — Cluster Overview",
+      "uid": "k8s-cluster-overview",
+      "version": 1
+    }
+
+---
+
 # --- GRAFANA DEPLOYMENT ---
 # The actual Grafana pod. Mounts three ConfigMaps as directories:
 # - datasources      → /etc/grafana/provisioning/datasources
@@ -1014,6 +1284,8 @@ spec:
               mountPath: /var/lib/grafana/dashboards
             - name: dashboards-node
               mountPath: /var/lib/grafana/dashboards-node
+            - name: dashboards-overview
+              mountPath: /var/lib/grafana/dashboards-overview
             - name: grafana-data
               mountPath: /var/lib/grafana
           resources:
@@ -1048,6 +1320,9 @@ spec:
         - name: dashboards-node
           configMap:
             name: grafana-dashboards-node
+        - name: dashboards-overview
+          configMap:
+            name: grafana-dashboards-overview
         - name: grafana-data
           emptyDir: {}
           # For persistence across restarts swap emptyDir for a PVC:
