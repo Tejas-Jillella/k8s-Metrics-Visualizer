@@ -124,7 +124,7 @@ data:
 
 # --- PERSISTENT VOLUME CLAIM ---
 # Prometheus stores its time-series database on disk.
-# 50Gi supports 30 days of data at 5s scrape interval across 9 nodes.
+# 100Gi supports 30 days of data at 5s scrape interval across 9 nodes.
 # If your cluster has no default StorageClass, uncomment storageClassName.
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -136,7 +136,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 50Gi
+      storage: 100Gi
   # storageClassName: ""   # ← set if your cluster has no default StorageClass
 
 ---
