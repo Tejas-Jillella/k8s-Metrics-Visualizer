@@ -1,5 +1,5 @@
 # ============================================================
-# FILE 1 of 3: monitoring.yaml
+# monitoring.yaml
 # Creates the monitoring namespace and gives Prometheus
 # permission to read pod/node data across the whole cluster
 # ============================================================

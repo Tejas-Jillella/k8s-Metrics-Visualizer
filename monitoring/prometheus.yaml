@@ -1,5 +1,5 @@
 # ============================================================
-# FILE 2 of 3: prometheus.yaml
+# prometheus.yaml
 # Everything Prometheus needs:
 #   - ConfigMap (what to scrape and how often)
 #   - PVC (storage for metric history)

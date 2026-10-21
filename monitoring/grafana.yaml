@@ -1,5 +1,5 @@
 # ============================================================
-# FILE 3 of 3: grafana.yaml
+# grafana.yaml
 # Everything Grafana needs:
 #   - Datasource ConfigMap (points Grafana at Prometheus)
 #   - Dashboard provider ConfigMap (tells Grafana where dashboard files are)
@@ -1567,7 +1567,7 @@ spec:
 # NodePort exposes Grafana outside the cluster.
 # Reach it at http://<any-node-ip>:30030
 # Access from laptop via SSH tunnel:
-#   ssh -L 3000:192.168.50.1:30030 sys-teja-admin@131.151.54.141
+#   ssh -L 3000:192.168.50.1:30030 <user>@<head-node-address>
 # Then open http://localhost:3000
 apiVersion: v1
 kind: Service

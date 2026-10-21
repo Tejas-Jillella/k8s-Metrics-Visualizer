@@ -1,7 +1,7 @@
 # Monitoring Stack Runbook
 
 Prometheus + Grafana deployed in the `monitoring` namespace on a 9-node L40S Kubernetes cluster.
-DCGM is already running in the `gpu-operator` namespace at `10.98.78.19:9400`.
+The NVIDIA DCGM exporter already runs in the `gpu-operator` namespace (one pod per GPU node).
 
 ---
 
@@ -9,14 +9,17 @@ DCGM is already running in the `gpu-operator` namespace at `10.98.78.19:9400`.
 
 | Component  | Image                      | Purpose                                      |
 |------------|----------------------------|----------------------------------------------|
-| Prometheus | `prom/prometheus:v2.51.2`  | Scrapes DCGM, kubelet, cAdvisor              |
-| Grafana    | `grafana/grafana:10.4.2`   | Dashboard — GPU + CPU + Memory for all pods  |
-| Redis      | existing                   | Used by the Go collector (separate from this) |
+| Prometheus    | `prom/prometheus:v2.51.2`     | Scrapes and stores metrics (30d / 80GB retention, 100Gi PVC) |
+| Grafana       | `grafana/grafana:10.4.2`      | Provisioned dashboards in three folders       |
+| node-exporter | `prom/node-exporter:v1.8.1`   | DaemonSet: per-node and per-core CPU, node memory |
 
 Prometheus scrapes:
-- **DCGM** — GPU utilization, memory, temperature, power (static target `10.98.78.19:9400`)
-- **kubelet** — node-level metrics (all 9 nodes, routed via API server)
-- **cAdvisor** — per-container CPU & memory (all pods, all namespaces)
+- **dcgm** — GPU utilization, memory, temperature, power, profiling (pod discovery, one target per node)
+- **node-exporter** — whole-node and per-core CPU, node memory (pod discovery, hostNetwork)
+- **kubelet** — node-level metrics (all nodes, routed via API server)
+- **cadvisor** — per-container CPU and memory (all pods, all namespaces)
+
+Every job carries a `node` label so series can be filtered per node.
 
 ---
 
@@ -42,7 +45,8 @@ http://localhost:3000
 
 **Login:** `admin` / `changeme`
 
-The "K8s — GPU + CPU + Memory" dashboard loads as the home page.
+The "K8s — GPU + CPU + Memory" dashboard loads as the home page. The other dashboards are in the
+`Node Breakdown` and `Cluster Overview` folders.
 
 ---
 
@@ -50,13 +54,10 @@ The "K8s — GPU + CPU + Memory" dashboard loads as the home page.
 
 ```bash
 # From the repo root
-kubectl apply -f monitoring/00-namespace.yaml
-kubectl apply -f monitoring/01-prometheus-rbac.yaml
-kubectl apply -f monitoring/02-prometheus-config.yaml
-kubectl apply -f monitoring/03-prometheus.yaml
-kubectl apply -f monitoring/04-grafana-config.yaml
-kubectl apply -f monitoring/05-grafana-dashboard.yaml
-kubectl apply -f monitoring/06-grafana.yaml
+kubectl apply -f monitoring/monitoring.yaml
+kubectl apply -f monitoring/prometheus.yaml
+kubectl apply -f monitoring/node-exporter.yaml
+kubectl apply -f monitoring/grafana.yaml
 
 # Watch pods come up
 kubectl get pods -n monitoring -w
@@ -70,18 +71,37 @@ kubectl get pods -n monitoring -w
 # Pod status
 kubectl get pods -n monitoring
 
-# Both should show Running 1/1
+# prometheus and grafana should be Running 1/1, plus one node-exporter pod per node
 # If Prometheus is CrashLoopBackOff see the fix below
 
 # Services
 kubectl get svc -n monitoring
 
-# Prometheus targets (are DCGM, kubelet, cadvisor all green?)
-# Open in browser via SSH tunnel:
-http://localhost:9090/targets
-# (change the -L port to 9090:192.168.50.1:30090 in your SSH tunnel, or use port-forward)
+# Prometheus targets (are dcgm, node-exporter, kubelet, cadvisor all up?)
 kubectl port-forward -n monitoring svc/prometheus 9090:9090
+# then open http://localhost:9090/targets
 ```
+
+---
+
+## Changing config
+
+Prometheus does not pick up ConfigMap changes on its own. After `kubectl apply -f monitoring/prometheus.yaml`:
+
+```bash
+curl -X POST http://$(kubectl get svc -n monitoring prometheus -o jsonpath='{.spec.clusterIP}'):9090/-/reload
+```
+
+Startup arguments (for example retention) need `kubectl rollout restart deployment/prometheus -n monitoring`.
+Dashboard changes need `kubectl rollout restart deployment/grafana -n monitoring`.
+
+---
+
+## Storage and retention
+
+Prometheus keeps 30 days of data, capped at 80GB (`--storage.tsdb.retention.time` and
+`--storage.tsdb.retention.size`). The PVC is 100Gi on Longhorn, which allows volume expansion, so
+the size cap stays below the disk and old blocks are dropped before it fills.
 
 ---
 
@@ -151,20 +171,15 @@ kubectl logs -n monitoring -l app=prometheus -f
 
 ---
 
-## Dashboard panels
+## Dashboards
 
-| Panel                          | Metric                                  |
-|--------------------------------|-----------------------------------------|
-| GPU Utilization (%)            | `DCGM_FI_DEV_GPU_UTIL`                 |
-| GPU Memory Used (MiB)          | `DCGM_FI_DEV_FB_USED`                  |
-| GPU Temperature (°C)           | `DCGM_FI_DEV_GPU_TEMP`                 |
-| GPU Power Usage (W)            | `DCGM_FI_DEV_POWER_USAGE`              |
-| CPU Usage — All Pods           | `container_cpu_usage_seconds_total`     |
-| Memory Working Set — All Pods  | `container_memory_working_set_bytes`    |
+| Folder           | Dashboard           | Contents |
+|------------------|---------------------|----------|
+| K8s Monitoring   | GPU + CPU + Memory  | GPU utilization, memory, temperature, power, per-pod CPU and memory, GR engine / DRAM / tensor core activity |
+| Node Breakdown   | Per-Node Breakdown  | Repeating row per node: CPU overall and per core, memory %, GPU overall and per index, GPU memory/temp/power, per-pod usage, profiling metrics |
+| Cluster Overview | Cluster Overview    | Bar gauges, one bar per node, for presenting |
+| Cluster Overview | Cluster Trends      | The same metrics as line graphs, one line per node |
 
-If GPU panels are empty, check whether DCGM is labeling metrics with `pod` or
-`exported_pod`. Update the PromQL filter accordingly:
-```
-# If pod label is missing, try:
-DCGM_FI_DEV_GPU_UTIL{exported_pod!=""}
-```
+Troubleshooting empty panels:
+- GPU panels empty: check whether DCGM labels metrics with `pod` or `exported_pod` and adjust the PromQL filter.
+- Per-node panels empty: confirm the `node-exporter` target is `up` at `/targets` and that Prometheus was reloaded after the last config change.
